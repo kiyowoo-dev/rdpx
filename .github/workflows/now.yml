@@ -1,16 +1,16 @@
-name: RDP
+name: PC
 
 on:
   workflow_dispatch:
     inputs:
-      hours:
-        description: "Durasi sesi dalam jam (maks 5)"
-        default: "5"
+      minutes:
+        description: "Durasi sesi dalam menit (maks 350 = 5 jam 50 menit)"
+        default: "350"
 
 jobs:
   rdp:
     runs-on: windows-latest
-    timeout-minutes: 350
+    timeout-minutes: 360   # batas maksimal runner GitHub-hosted (6 jam)
 
     steps:
       - name: Konfigurasi RDP dan user
@@ -19,13 +19,15 @@ jobs:
           RDP_PASSWORD: ${{ secrets.RDP_PASSWORD }}
         run: |
           if ([string]::IsNullOrEmpty($env:RDP_PASSWORD)) {
-            throw "Secret RDP_PASSWORD belum diisi."
+            throw "Secret RDP_PASSWORD belum diisi (Settings > Secrets and variables > Actions)."
           }
 
+          # Aktifkan RDP, NLA tetap ON
           $ts = 'HKLM:\System\CurrentControlSet\Control\Terminal Server'
           Set-ItemProperty -Path $ts -Name "fDenyTSConnections" -Value 0 -Force
           Set-ItemProperty -Path "$ts\WinStations\RDP-Tcp" -Name "UserAuthentication" -Value 1 -Force
 
+          # Firewall: RDP hanya dari jaringan Tailscale
           Get-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue | Disable-NetFirewallRule
           Remove-NetFirewallRule -DisplayName "RDP-Tailscale" -ErrorAction SilentlyContinue
           New-NetFirewallRule -DisplayName "RDP-Tailscale" -Direction Inbound -Action Allow `
@@ -33,6 +35,7 @@ jobs:
 
           Restart-Service -Name TermService -Force
 
+          # Buat user RDP dengan password dari secret
           $securePass = ConvertTo-SecureString $env:RDP_PASSWORD -AsPlainText -Force
           New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires | Out-Null
           Add-LocalGroupMember -Group "Administrators" -Member "RDP"
@@ -76,19 +79,20 @@ jobs:
       - name: Pertahankan sesi
         shell: pwsh
         env:
-          HOURS: ${{ inputs.hours }}
+          MINUTES: ${{ inputs.minutes }}
         run: |
-          $h = [Math]::Min([double]$env:HOURS, 5)
-          $end = (Get-Date).AddHours($h)
+          $m = [Math]::Min([double]$env:MINUTES, 350)
+          $end = (Get-Date).AddMinutes($m)
 
           Write-Host ""
           Write-Host "=== AKSES RDP ==="
           Write-Host "Alamat   : $env:TAILSCALE_IP"
           Write-Host "Username : RDP"
+          Write-Host "Password : (isi secret RDP_PASSWORD)"
           Write-Host "Berakhir : $end"
-          Write-Host "================="
+          Write-Host "=================`n"
 
           while ((Get-Date) -lt $end) {
-            Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP aktif."
+            Write-Host "[$(Get-Date -Format 'HH:mm:ss')] RDP aktif. Batalkan lewat Actions > Cancel workflow."
             Start-Sleep -Seconds 300
           }
