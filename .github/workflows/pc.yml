@@ -1,0 +1,155 @@
+name: PC
+
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Durasi sesi dalam menit (maks 350 = 5 jam 50 menit)"
+        default: "350"
+
+jobs:
+  pc:
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Konfigurasi PC dan user
+        shell: pwsh
+        env:
+          PC_PASSWORD: ${{ secrets.PC_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrEmpty($env:PC_PASSWORD)) {
+            throw "Secret PC_PASSWORD belum diisi."
+          }
+
+          $ts = 'HKLM:\System\CurrentControlSet\Control\Terminal Server'
+          Set-ItemProperty -Path $ts -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path "$ts\WinStations\RDP-Tcp" -Name "UserAuthentication" -Value 1 -Force
+
+          Get-NetFirewallRule -DisplayGroup "Remote Desktop" -ErrorAction SilentlyContinue | Disable-NetFirewallRule
+          Remove-NetFirewallRule -DisplayName "PC-Tailscale" -ErrorAction SilentlyContinue
+          New-NetFirewallRule -DisplayName "PC-Tailscale" -Direction Inbound -Action Allow `
+            -Protocol TCP -LocalPort 3389 -RemoteAddress "100.64.0.0/10" -Profile Any | Out-Null
+
+          Restart-Service -Name TermService -Force
+
+          $securePass = ConvertTo-SecureString $env:PC_PASSWORD -AsPlainText -Force
+          New-LocalUser -Name "PC" -Password $securePass -AccountNeverExpires | Out-Null
+          Add-LocalGroupMember -Group "Administrators" -Member "PC"
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "PC"
+
+      - name: Hapus aplikasi
+        shell: pwsh
+        run: |
+          Stop-Process -Name chrome, firefox -Force -ErrorAction SilentlyContinue
+
+          function Remove-App($Pattern) {
+            $keys = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*",
+                    "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+            $apps = Get-ItemProperty $keys -ErrorAction SilentlyContinue |
+                    Where-Object { $_.DisplayName -match $Pattern }
+            foreach ($app in $apps) {
+              Write-Host "Menghapus $($app.DisplayName)"
+              $cmd = $app.UninstallString
+              if ($cmd -match "msiexec" -and $cmd -match "\{[0-9A-Fa-f\-]+\}") {
+                Start-Process msiexec.exe -ArgumentList "/x $($Matches[0]) /qn /norestart" -Wait
+              } elseif ($cmd -match '^\s*"([^"]+)"\s*(.*)$') {
+                $exe = $Matches[1]; $a = $Matches[2]
+                if     ($exe -like "*unins*")             { $a += " /VERYSILENT /SUPPRESSMSGBOXES /NORESTART" }
+                elseif ($app.DisplayName -match "Chrome") { $a += " --force-uninstall" }
+                else                                      { $a += " /S" }
+                Start-Process $exe -ArgumentList $a.Trim() -Wait
+              }
+            }
+          }
+
+          "^Google Chrome$", "^Mozilla Firefox", "^R for Windows",
+          "^Rtools", "^Strawberry Perl", "^Unity Hub" | ForEach-Object { Remove-App $_ }
+
+      - name: Atur tema gelap
+        shell: pwsh
+        run: |
+          reg load HKU\DefUser "C:\Users\Default\NTUSER.DAT" | Out-Null
+          try {
+            $p = "Registry::HKEY_USERS\DefUser\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+            New-Item -Path $p -Force | Out-Null
+            Set-ItemProperty $p -Name AppsUseLightTheme    -Value 0 -Type DWord
+            Set-ItemProperty $p -Name SystemUsesLightTheme -Value 0 -Type DWord
+            Set-ItemProperty $p -Name ColorPrevalence      -Value 0 -Type DWord
+          } finally {
+            [gc]::Collect(); Start-Sleep 2
+            reg unload HKU\DefUser | Out-Null
+          }
+
+      - name: Daftarkan setup otomatis saat login PC
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path C:\setup -Force | Out-Null
+          Copy-Item "$env:GITHUB_WORKSPACE\scripts\user-setup.ps1" "C:\setup\user-setup.ps1" -Force
+
+          $user      = "$env:COMPUTERNAME\PC"
+          $action    = New-ScheduledTaskAction -Execute "powershell.exe" `
+                       -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\setup\user-setup.ps1"
+          $trigger   = New-ScheduledTaskTrigger -AtLogOn -User $user
+          $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest
+          $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+                       -ExecutionTimeLimit (New-TimeSpan -Hours 2)
+          Register-ScheduledTask -TaskName "UserSetup" -Action $action -Trigger $trigger `
+            -Principal $principal -Settings $settings -Force | Out-Null
+
+      - name: Instal Tailscale
+        shell: pwsh
+        run: |
+          $msi = "$env:TEMP\tailscale.msi"
+          Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest-amd64.msi" -OutFile $msi
+          Start-Process msiexec.exe -ArgumentList "/i", "`"$msi`"", "/quiet", "/norestart" -Wait
+          Remove-Item $msi -Force
+          Start-Sleep -Seconds 5
+
+      - name: Hubungkan Tailscale
+        shell: pwsh
+        env:
+          TS_AUTHKEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
+        run: |
+          if ([string]::IsNullOrEmpty($env:TS_AUTHKEY)) {
+            throw "Secret TAILSCALE_AUTH_KEY belum diisi."
+          }
+          $tsExe = "$env:ProgramFiles\Tailscale\tailscale.exe"
+          & $tsExe up --authkey=$env:TS_AUTHKEY --hostname="gh-pc-$env:GITHUB_RUN_ID" --unattended
+
+          $tsIP = $null
+          for ($i = 0; $i -lt 12 -and -not $tsIP; $i++) {
+            $tsIP = (& $tsExe ip -4 2>$null | Select-Object -First 1)
+            if (-not $tsIP) { Start-Sleep -Seconds 5 }
+          }
+          if (-not $tsIP) { throw "IP Tailscale tidak ditetapkan." }
+          "TAILSCALE_IP=$tsIP" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Verifikasi PC
+        shell: pwsh
+        run: |
+          $r = Test-NetConnection -ComputerName $env:TAILSCALE_IP -Port 3389
+          if (-not $r.TcpTestSucceeded) { throw "Port 3389 tidak terjangkau." }
+          Write-Host "PC siap."
+
+      - name: Pertahankan sesi
+        shell: pwsh
+        env:
+          MINUTES: ${{ inputs.minutes }}
+        run: |
+          $m = [Math]::Min([double]$env:MINUTES, 350)
+          $end = (Get-Date).AddMinutes($m)
+
+          Write-Host ""
+          Write-Host "=== AKSES PC ==="
+          Write-Host "Alamat   : $env:TAILSCALE_IP"
+          Write-Host "Username : PC"
+          Write-Host "Berakhir : $end"
+          Write-Host "================"
+
+          while ((Get-Date) -lt $end) {
+            Write-Host "[$(Get-Date -Format 'HH:mm:ss')] PC aktif."
+            Start-Sleep -Seconds 300
+          }
