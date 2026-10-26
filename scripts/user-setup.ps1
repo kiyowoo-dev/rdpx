@@ -9,45 +9,6 @@ Start-Transcript -Path "C:\setup\user-setup.log" -Force | Out-Null
 
 $desktop = [Environment]::GetFolderPath("Desktop")
 
-# ===== AUTO-CLICKER (Next / Install / Finish) =====
-$clickerPath = "$env:TEMP\autoclick.ps1"
-@'
-Add-Type -AssemblyName UIAutomationClient
-Add-Type -AssemblyName UIAutomationTypes
-$procRegex = '^(unins\d*|_iu.*|_is.*|Un_A.*|Uninstall.*|helper|AntigravityIDE.*|Antigravity IDE.*|RobloxStudioInstaller.*|setup)$'
-$btnRegex  = '^(Next|Install|Uninstall|Finish|Done|Yes|OK|Continue|I Agree|Agree|Accept)\b'
-$AE = [Windows.Automation.AutomationElement]
-$ctBtn   = New-Object Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [Windows.Automation.ControlType]::Button)
-$ctRadio = New-Object Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [Windows.Automation.ControlType]::RadioButton)
-$desc = [Windows.Automation.TreeScope]::Descendants
-while ($true) {
-    try {
-        $wins = $AE::RootElement.FindAll([Windows.Automation.TreeScope]::Children, [Windows.Automation.Condition]::TrueCondition)
-        foreach ($w in $wins) {
-            $pn = (Get-Process -Id $w.Current.ProcessId -ErrorAction SilentlyContinue).ProcessName
-            if (-not $pn -or $pn -notmatch $procRegex) { continue }
-            foreach ($r in $w.FindAll($desc, $ctRadio)) {
-                if (($r.Current.Name -replace '&','') -match '^I accept') {
-                    $sp = $r.GetCurrentPattern([Windows.Automation.SelectionItemPattern]::Pattern)
-                    if (-not $sp.Current.IsSelected) { $sp.Select() }
-                }
-            }
-            foreach ($b in $w.FindAll($desc, $ctBtn)) {
-                $n = $b.Current.Name -replace '&',''
-                if ($b.Current.IsEnabled -and $n -match $btnRegex) {
-                    $b.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
-                    break
-                }
-            }
-        }
-    } catch {}
-    Start-Sleep -Milliseconds 800
-}
-'@ | Set-Content -Path $clickerPath -Encoding UTF8
-
-$clickerProc = Start-Process "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" `
-    -ArgumentList "-NoProfile","-ExecutionPolicy","Bypass","-WindowStyle","Hidden","-File",$clickerPath -PassThru
-
 # ===== DARK MODE (broadcast agar langsung terlihat) =====
 $reg = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
 if (!(Test-Path $reg)) { New-Item -Path $reg -Force | Out-Null }
@@ -160,6 +121,4 @@ if ($studio) {
 }
 
 # ===== SELESAI =====
-if ($clickerProc -and -not $clickerProc.HasExited) { Stop-Process -Id $clickerProc.Id -Force -ErrorAction SilentlyContinue }
-Remove-Item $clickerPath -Force -ErrorAction SilentlyContinue
 Stop-Transcript | Out-Null
