@@ -4,8 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       minutes:
-        description: "Durasi sesi dalam menit (maks 350 = 5 jam 50 menit)"
-        default: "350"
+        description: "Durasi sesi dalam menit (maks 345 = 5 jam 45 menit)"
+        default: "345"
 
 jobs:
   pc:
@@ -88,6 +88,34 @@ jobs:
             reg unload HKU\DefUser | Out-Null
           }
 
+      - name: Clone repo private ke Desktop
+        shell: pwsh
+        env:
+          KIT_TOKEN: ${{ secrets.KIT_TOKEN }}
+        run: |
+          if ([string]::IsNullOrEmpty($env:KIT_TOKEN)) {
+            throw "Secret KIT_TOKEN belum diisi."
+          }
+          $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("x-access-token:$env:KIT_TOKEN"))
+          Write-Host "::add-mask::$b64"
+
+          $dest = "$env:PUBLIC\Desktop\roblox-kit-bunker"
+          git -c http.extraheader="AUTHORIZATION: basic $b64" clone --depth 1 `
+            https://github.com/oyy-gus/roblox-kit-bunker.git $dest
+          if ($LASTEXITCODE -ne 0) { throw "Clone gagal. Cek KIT_TOKEN dan izin Contents: Read." }
+          Write-Host "Clone selesai: $dest"
+
+          # Simpan kredensial agar git push dari user PC berfungsi
+          $cred = "C:\setup\git-credentials"
+          New-Item -ItemType Directory C:\setup -Force | Out-Null
+          "https://x-access-token:$($env:KIT_TOKEN)@github.com" | Set-Content $cred -NoNewline
+          icacls $cred /inheritance:r /grant "Administrators:F" "SYSTEM:F" "$($env:COMPUTERNAME)\PC:M" | Out-Null
+
+          git config --system credential.helper "store --file=C:/setup/git-credentials"
+          git config --system --add safe.directory "*"
+          git config --system user.name "oyy-gus"
+          git config --system user.email "bagus.yml@gmail.com"
+
       - name: Daftarkan setup otomatis saat login PC
         shell: pwsh
         run: |
@@ -144,7 +172,7 @@ jobs:
         env:
           MINUTES: ${{ inputs.minutes }}
         run: |
-          $m = [Math]::Min([double]$env:MINUTES, 350)
+          $m = [Math]::Min([double]$env:MINUTES, 345)
           $end = (Get-Date).AddMinutes($m)
 
           Write-Host ""
