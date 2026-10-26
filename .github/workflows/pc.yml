@@ -92,16 +92,25 @@ jobs:
         shell: pwsh
         env:
           KIT_TOKEN: ${{ secrets.KIT_TOKEN }}
+          KIT_REPO: ${{ secrets.KIT_REPO }}
+          GIT_NAME: ${{ secrets.GIT_NAME }}
+          GIT_EMAIL: ${{ secrets.GIT_EMAIL }}
         run: |
-          if ([string]::IsNullOrEmpty($env:KIT_TOKEN)) {
-            throw "Secret KIT_TOKEN belum diisi."
+          foreach ($v in "KIT_TOKEN", "KIT_REPO", "GIT_NAME", "GIT_EMAIL") {
+            if ([string]::IsNullOrEmpty([Environment]::GetEnvironmentVariable($v))) {
+              throw "Secret $v belum diisi."
+            }
           }
           $b64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes("x-access-token:$env:KIT_TOKEN"))
           Write-Host "::add-mask::$b64"
 
-          $dest = "$env:PUBLIC\Desktop\roblox-kit-bunker"
-          git -c http.extraheader="AUTHORIZATION: basic $b64" clone --depth 1 `
-            https://github.com/oyy-gus/roblox-kit-bunker.git $dest
+          $url = $env:KIT_REPO.Trim()
+          if ($url -notmatch '^https://github\.com/[\w.-]+/[\w.-]+\.git$') {
+            throw "KIT_REPO harus URL penuh: https://github.com/pemilik/nama-repo.git"
+          }
+          $name = ($url -split "/")[-1] -replace '\.git$', ''
+          $dest = Join-Path "$env:PUBLIC\Desktop" $name
+          git -c http.extraheader="AUTHORIZATION: basic $b64" clone --depth 1 $url $dest
           if ($LASTEXITCODE -ne 0) { throw "Clone gagal. Cek KIT_TOKEN dan izin Contents: Read." }
           Write-Host "Clone selesai: $dest"
 
@@ -113,8 +122,8 @@ jobs:
 
           git config --system credential.helper "store --file=C:/setup/git-credentials"
           git config --system --add safe.directory "*"
-          git config --system user.name "oyy-gus"
-          git config --system user.email "bagus.yml@gmail.com"
+          git config --system user.name "$env:GIT_NAME"
+          git config --system user.email "$env:GIT_EMAIL"
 
       - name: Daftarkan setup otomatis saat login PC
         shell: pwsh
