@@ -122,7 +122,7 @@ jobs:
             throw "Secret TAILSCALE_AUTH_KEY belum diisi."
           }
           $tsExe = "$env:ProgramFiles\Tailscale\tailscale.exe"
-          & $tsExe up --authkey=$env:TS_AUTHKEY --hostname="gh-pc-$env:GITHUB_RUN_ID" --unattended
+          & $tsExe up --authkey=$env:TS_AUTHKEY --hostname="pc" --unattended
 
           $tsIP = $null
           for ($i = 0; $i -lt 12 -and -not $tsIP; $i++) {
