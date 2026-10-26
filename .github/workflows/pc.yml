@@ -53,14 +53,19 @@ jobs:
             foreach ($app in $apps) {
               Write-Host "Menghapus $($app.DisplayName)"
               $cmd = $app.UninstallString
+              $p = $null
               if ($cmd -match "msiexec" -and $cmd -match "\{[0-9A-Fa-f\-]+\}") {
-                Start-Process msiexec.exe -ArgumentList "/x $($Matches[0]) /qn /norestart" -Wait
+                $p = Start-Process msiexec.exe -ArgumentList "/x $($Matches[0]) /qn /norestart" -PassThru
               } elseif ($cmd -match '^\s*"([^"]+)"\s*(.*)$') {
                 $exe = $Matches[1]; $a = $Matches[2]
                 if     ($exe -like "*unins*")             { $a += " /VERYSILENT /SUPPRESSMSGBOXES /NORESTART" }
                 elseif ($app.DisplayName -match "Chrome") { $a += " --force-uninstall" }
                 else                                      { $a += " /S" }
-                Start-Process $exe -ArgumentList $a.Trim() -Wait
+                $p = Start-Process $exe -ArgumentList $a.Trim() -PassThru
+              }
+              if ($p) {
+                if ($p.WaitForExit(180000)) { Write-Host "  Selesai." }
+                else { $p.Kill(); Write-Host "  Timeout 3 menit, dilewati." }
               }
             }
           }
@@ -95,7 +100,7 @@ jobs:
           $trigger   = New-ScheduledTaskTrigger -AtLogOn -User $user
           $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest
           $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
-                       -ExecutionTimeLimit (New-TimeSpan -Hours 2)
+                       -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 2)
           Register-ScheduledTask -TaskName "UserSetup" -Action $action -Trigger $trigger `
             -Principal $principal -Settings $settings -Force | Out-Null
 
