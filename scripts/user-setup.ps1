@@ -9,6 +9,12 @@ Start-Transcript -Path "C:\setup\user-setup.log" -Force | Out-Null
 
 $desktop = [Environment]::GetFolderPath("Desktop")
 
+# ===== PINDAHKAN REPO HASIL CLONE KE DESKTOP USER INI =====
+Get-ChildItem "C:\setup\repos" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+    $target = Join-Path $desktop $_.Name
+    if (-not (Test-Path $target)) { Move-Item $_.FullName $target -Force }
+}
+
 # ===== DARK MODE (broadcast agar langsung terlihat) =====
 $reg = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
 if (!(Test-Path $reg)) { New-Item -Path $reg -Force | Out-Null }
@@ -103,8 +109,8 @@ function Find-Studio {
 $studio = Find-Studio
 $installerPath = "$env:TEMP\RobloxStudioInstaller.exe"
 foreach ($url in @(
-    "https://raw.githubusercontent.com/oyy-gus/setup-windows/master/installer/RobloxStudioInstaller.exe",
-    "https://setup.rbxcdn.com/RobloxStudioInstaller.exe")) {
+    "https://setup.rbxcdn.com/RobloxStudioInstaller.exe",
+    "https://raw.githubusercontent.com/oyy-gus/setup-windows/master/installer/RobloxStudioInstaller.exe")) {
     if ($studio) { break }
     try {
         Invoke-WebRequest -Uri $url -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
@@ -116,8 +122,11 @@ foreach ($url in @(
 }
 Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
 if ($studio) {
+    $launcher = Get-ChildItem "$env:LOCALAPPDATA\Roblox\Versions" -Filter "RobloxStudioLauncherBeta.exe" -Recurse -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    $target = if ($launcher) { $launcher.FullName } else { $studio.FullName }
     $s = (New-Object -ComObject WScript.Shell).CreateShortcut("$desktop\Roblox Studio.lnk")
-    $s.TargetPath = $studio.FullName; $s.IconLocation = "$($studio.FullName),0"; $s.Save()
+    $s.TargetPath = $target; $s.IconLocation = "$($studio.FullName),0"; $s.Save()
 }
 
 # ===== SELESAI =====
