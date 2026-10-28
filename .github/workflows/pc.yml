@@ -109,7 +109,8 @@ jobs:
             throw "KIT_REPO harus URL penuh: https://github.com/pemilik/nama-repo.git"
           }
           $name = ($url -split "/")[-1] -replace '\.git$', ''
-          $dest = Join-Path "$env:PUBLIC\Desktop" $name
+          New-Item -ItemType Directory "C:\setup\repos" -Force | Out-Null
+          $dest = Join-Path "C:\setup\repos" $name
           git -c http.extraheader="AUTHORIZATION: basic $b64" clone --depth 1 $url $dest
           if ($LASTEXITCODE -ne 0) { throw "Clone gagal. Cek KIT_TOKEN dan izin Contents: Read." }
           Write-Host "Clone selesai: $dest"
