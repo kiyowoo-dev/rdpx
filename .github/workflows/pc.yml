@@ -136,7 +136,7 @@ jobs:
           $action    = New-ScheduledTaskAction -Execute "powershell.exe" `
                        -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File C:\setup\user-setup.ps1"
           $trigger   = New-ScheduledTaskTrigger -AtLogOn -User $user
-          $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Highest
+          $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
           $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
                        -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 2)
           Register-ScheduledTask -TaskName "UserSetup" -Action $action -Trigger $trigger `
