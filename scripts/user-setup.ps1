@@ -102,31 +102,72 @@ if ($agExe) {
 
 # ===== ROBLOX STUDIO =====
 Write-Host "Install Roblox Studio"
+$versionsDir = "$env:LOCALAPPDATA\Roblox\Versions"
+
 function Find-Studio {
-    Get-ChildItem "$env:LOCALAPPDATA\Roblox\Versions" -Filter "RobloxStudioBeta.exe" -Recurse -ErrorAction SilentlyContinue |
+    Get-ChildItem $versionsDir -Filter "RobloxStudioBeta.exe" -Recurse -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
 }
-$studio = Find-Studio
+
+# Hanya untuk log: versi terbaru dari Roblox (tidak dipakai untuk memasang ulang)
+try {
+    $latest = (Invoke-RestMethod "https://clientsettingscdn.roblox.com/v2/client-version/WindowsStudio64" `
+        -UseBasicParsing -TimeoutSec 20).clientVersionUpload
+    Write-Host "Versi Studio terbaru menurut Roblox: $latest"
+} catch { $latest = $null }
+
 $installerPath = "$env:TEMP\RobloxStudioInstaller.exe"
-foreach ($url in @(
-    "https://setup.rbxcdn.com/RobloxStudioInstaller.exe",
-    "https://raw.githubusercontent.com/oyy-gus/setup-windows/master/installer/RobloxStudioInstaller.exe")) {
-    if ($studio) { break }
-    try {
-        Invoke-WebRequest -Uri $url -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
-        if ((Get-Item $installerPath).Length -lt 100000) { throw "Installer tidak valid." }
-        $p = Start-Process $installerPath -PassThru
-        $p.WaitForExit(300000) | Out-Null
-        for ($i = 0; $i -lt 60 -and -not $studio; $i++) { Start-Sleep 5; $studio = Find-Studio }
-    } catch { Write-Host "Gagal dari $url : $_" }
+$sources = @(
+    "https://raw.githubusercontent.com/oyy-gus/setup-windows/master/installer/RobloxStudioInstaller.exe"
+)
+
+$studio = Find-Studio
+if (-not $studio) {
+    foreach ($url in $sources) {
+        # Hanya satu sumber: installer dari repo setup-windows
+        try {
+            Invoke-WebRequest -Uri $url -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
+            if ((Get-Item $installerPath).Length -lt 100000) { throw "Installer tidak valid." }
+        } catch {
+            Write-Host "Gagal mengunduh dari $url : $_"
+            continue
+        }
+
+        Write-Host "Menjalankan installer dari $url (satu kali)"
+        $null = Start-Process $installerPath -PassThru
+
+        # Tunggu sampai Studio terpasang dan installer selesai (maks 15 menit)
+        $deadline = (Get-Date).AddMinutes(15)
+        $foundAt = $null
+        while ((Get-Date) -lt $deadline) {
+            Start-Sleep 5
+            if (-not $studio) { $studio = Find-Studio }
+            if ($studio) {
+                if (-not $foundAt) { $foundAt = Get-Date }
+                $busy = Get-Process RobloxStudioInstaller -ErrorAction SilentlyContinue
+                if (-not $busy -or ((Get-Date) - $foundAt).TotalSeconds -gt 60) { break }
+            }
+        }
+        break   # installer sudah dijalankan; jangan coba sumber lain
+    }
+} else {
+    Write-Host "Roblox Studio sudah terpasang, dilewati."
 }
 Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
+
+# Pastikan user ini bisa menulis ke folder Roblox (untuk auto-update)
+icacls "$env:LOCALAPPDATA\Roblox" /grant "${env:USERNAME}:(OI)(CI)F" /T /C 2>$null | Out-Null
+
+$studio = Find-Studio
 if ($studio) {
-    $launcher = Get-ChildItem "$env:LOCALAPPDATA\Roblox\Versions" -Filter "RobloxStudioLauncherBeta.exe" -Recurse -ErrorAction SilentlyContinue |
+    $launcher = Get-ChildItem $versionsDir -Filter "RobloxStudioLauncherBeta.exe" -Recurse -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
     $target = if ($launcher) { $launcher.FullName } else { $studio.FullName }
     $s = (New-Object -ComObject WScript.Shell).CreateShortcut("$desktop\Roblox Studio.lnk")
     $s.TargetPath = $target; $s.IconLocation = "$($studio.FullName),0"; $s.Save()
+    Write-Host "Roblox Studio siap."
+} else {
+    Write-Host "Roblox Studio GAGAL terpasang."
 }
 
 # ===== SELESAI =====
