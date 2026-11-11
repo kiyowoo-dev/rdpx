@@ -73,7 +73,7 @@ Set-Reg "HKCU:\Control Panel\Desktop\WindowMetrics" MinAnimate "0" "String"
 Write-Host "Install Antigravity IDE"
 $already = Get-ChildItem "$env:LOCALAPPDATA\Programs", $env:ProgramFiles -Directory -Filter "Antigravity*" -ErrorAction SilentlyContinue
 if (-not $already) {
-    $agUrl = "https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/2.5.5-4923483625488384/windows-x64/Antigravity%20IDE.exe"
+    $agUrl = "https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/2.6.0-5526304964083712/windows-x64/Antigravity%20IDE.exe"
     $agInstaller = "$env:TEMP\AntigravityIDE.exe"
     try {
         Invoke-WebRequest -Uri $agUrl -OutFile $agInstaller -UseBasicParsing -ErrorAction Stop
