@@ -147,6 +147,56 @@ jobs:
           Register-ScheduledTask -TaskName "UserSetup" -Action $action -Trigger $trigger `
             -Principal $principal -Settings $settings -Force | Out-Null
 
+      - name: Instal Blender dan Mesa3D (Software OpenGL)
+        shell: pwsh
+        run: |
+          Write-Host "Menginstal Blender..."
+          winget install --id BlenderFoundation.Blender --exact --source winget `
+            --accept-package-agreements --accept-source-agreements --silent
+          if ($LASTEXITCODE -ne 0) {
+            throw "winget install Blender gagal dengan exit code $LASTEXITCODE."
+          }
+
+          $blenderExe = Get-ChildItem "$env:ProgramFiles\Blender Foundation" -Recurse -Filter "blender.exe" -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $blenderExe) {
+            throw "Blender gagal terpasang di $env:ProgramFiles\Blender Foundation."
+          }
+          $blenderDir = $blenderExe.DirectoryName
+          Write-Host "Blender terpasang di: $blenderDir"
+
+          Write-Host "Mengunduh Mesa3D untuk dukungan OpenGL 4.3+..."
+          $release = Invoke-RestMethod -Uri "https://api.github.com/repos/pal1000/mesa-dist-win/releases/latest" `
+            -Headers @{ "User-Agent" = "GitHubActions" }
+          $asset = $release.assets | Where-Object { $_.name -match 'mesa3d-.*-release-msvc\.7z$' } | Select-Object -First 1
+          if (-not $asset) {
+            throw "Asset Mesa3D release-msvc tidak ditemukan."
+          }
+
+          $mesaArchive = Join-Path $env:TEMP $asset.name
+          $mesaExtract = Join-Path $env:TEMP "mesa3d-extract"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $mesaArchive
+
+          New-Item -ItemType Directory -Path $mesaExtract -Force | Out-Null
+          $sevenZip = (Get-Command 7z -ErrorAction SilentlyContinue)?.Source
+          if (-not $sevenZip -and (Test-Path "$env:ProgramFiles\7-Zip\7z.exe")) {
+            $sevenZip = "$env:ProgramFiles\7-Zip\7z.exe"
+          }
+          if ($sevenZip) {
+            & $sevenZip x $mesaArchive "-o$mesaExtract" "x64\opengl32.dll" "x64\libgallium_wgl.dll" -y | Out-Null
+            & $sevenZip x $mesaArchive "-o$mesaExtract" "x64\opengl32.dll" "x64\libgallium_wgl.dll" "x64\dxil.dll" -y | Out-Null
+          } else {
+            tar -xf $mesaArchive -C $mesaExtract x64
+          }
+          if ($LASTEXITCODE -ne 0) {
+            throw "Ekstrak Mesa3D gagal dengan exit code $LASTEXITCODE."
+          }
+
+          Copy-Item "$mesaExtract\x64\opengl32.dll", "$mesaExtract\x64\libgallium_wgl.dll" -Destination $blenderDir -Force
+          Copy-Item "$mesaExtract\x64\opengl32.dll", "$mesaExtract\x64\libgallium_wgl.dll", "$mesaExtract\x64\dxil.dll" -Destination $blenderDir -Force
+          Remove-Item $mesaArchive, $mesaExtract -Recurse -Force -ErrorAction SilentlyContinue
+          Write-Host "Mesa3D (opengl32.dll & libgallium_wgl.dll) berhasil dipasang."
+
       - name: Instal Tailscale
         shell: pwsh
         run: |
