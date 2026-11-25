@@ -170,5 +170,14 @@ if ($studio) {
     Write-Host "Roblox Studio GAGAL terpasang."
 }
 
+# ===== BLENDER SHORTCUT =====
+$blenderExe = Get-ChildItem "$env:ProgramFiles\Blender Foundation" -Recurse -Filter "blender.exe" -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+if ($blenderExe) {
+    $s = (New-Object -ComObject WScript.Shell).CreateShortcut("$desktop\Blender.lnk")
+    $s.TargetPath = $blenderExe; $s.IconLocation = "$blenderExe,0"; $s.Save()
+    Write-Host "Shortcut Blender siap."
+}
+
 # ===== SELESAI =====
 Stop-Transcript | Out-Null
